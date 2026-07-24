@@ -1,30 +1,36 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/widgets/bottom_nav.dart';
 import '../../../shared/widgets/glass_panel.dart';
 import '../../../shared/widgets/page_header.dart';
 import '../../../shared/widgets/thumb_back_button.dart';
+import '../data/tts_service.dart';
+import 'tts_providers.dart';
 
-class VoiceSettingsScreen extends StatefulWidget {
+class VoiceSettingsScreen extends ConsumerStatefulWidget {
   const VoiceSettingsScreen({super.key});
 
   @override
-  State<VoiceSettingsScreen> createState() => _VoiceSettingsScreenState();
+  ConsumerState<VoiceSettingsScreen> createState() => _VoiceSettingsScreenState();
 }
 
-class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
+class _VoiceSettingsScreenState extends ConsumerState<VoiceSettingsScreen> {
   bool masterOn = true;
   double volume = 0.75;
-  double rate = 0.5;
+  double rate = 1.0;
   String gender = 'female';
   String voice = 'sara';
-  String engine = 'system';
   bool streetNames = true;
   bool cameraAlerts = true;
   bool duckMusic = false;
 
   @override
   Widget build(BuildContext context) {
+    final ttsService = ref.read(ttsServiceProvider);
+    final ttsVolume = ref.watch(ttsVolumeProvider);
+    final ttsRate = ref.watch(ttsRateProvider);
+
     return Scaffold(
       appBar: const PageHeader(title: 'تنظیمات صدا', backRoute: '/settings'),
       body: Container(
@@ -54,14 +60,21 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
                         label: 'میزان بلندی صدا',
                         value: volume,
                         valueLabel: '${(volume * 100).round()}%',
-                        onChanged: (v) => setState(() => volume = v),
+                        onChanged: (v) {
+                          setState(() => volume = v);
+                          ref.read(ttsVolumeProvider.notifier).state = v;
+                        },
                       ),
                       const SizedBox(height: 16),
                       _Slider(
                         label: 'سرعت خواندن',
                         value: rate,
                         valueLabel: _rateLabel(rate),
-                        onChanged: (v) => setState(() => rate = v),
+                        onChanged: (v) {
+                          setState(() => rate = v);
+                          final mappedRate = 0.5 + v * 1.0; // 0.5 تا 1.5
+                          ref.read(ttsRateProvider.notifier).state = mappedRate;
+                        },
                       ),
                       const SizedBox(height: 16),
                       const Text('جنسیت گوینده', style: TextStyle(color: Colors.white, fontSize: 15)),
@@ -78,24 +91,31 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
                             title: v.$1,
                             subtitle: v.$2,
                             selected: voice == v.$3,
-                            onTap: () => setState(() => voice = v.$3),
+                            onTap: () {
+                              setState(() => voice = v.$3);
+                              // تغییر صدا در TTS
+                              ttsService.setVoice(v.$3);
+                            },
                           )),
                       const SizedBox(height: 10),
-                      _TestVoiceButton(),
+                      _TestVoiceButton(
+                        onTap: () async {
+                          // نمونه‌ی صدا برای تست
+                          await ttsService.speak(
+                            'سلام، من یک دستیار صوتی فارسی‌گو هستم.',
+                            rate: rate,
+                            volume: volume,
+                          );
+                        },
+                      ),
                       const SizedBox(height: 20),
-                      const Text('موتور تبدیل متن به گفتار (TTS)', style: TextStyle(color: Colors.white, fontSize: 15)),
+                      const Text('تنظیمات صوتی', style: TextStyle(color: Colors.white, fontSize: 15)),
                       const SizedBox(height: 8),
                       _OptionRow(
-                        title: 'موتور پیش‌فرض سیستم',
+                        title: 'موتور TTS سیستم',
                         subtitle: 'بدون نیاز به اینترنت، سریع‌تر',
-                        selected: engine == 'system',
-                        onTap: () => setState(() => engine = 'system'),
-                      ),
-                      _OptionRow(
-                        title: 'موتور آنلاین (کیفیت بالا)',
-                        subtitle: 'نیاز به اینترنت، طبیعی‌تر',
-                        selected: engine == 'cloud',
-                        onTap: () => setState(() => engine = 'cloud'),
+                        selected: true,
+                        onTap: () {},
                       ),
                       const SizedBox(height: 16),
                       _SwitchRow(
@@ -128,7 +148,7 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
   }
 
   String _rateLabel(double p) {
-    final speed = (0.5 + p * 1.5);
+    final speed = (0.5 + p * 1.0);
     final label = speed == 1.0 ? 'متوسط' : (speed < 1.0 ? 'کند' : 'سریع');
     return '$label (${speed.toStringAsFixed(1)}x)';
   }
@@ -170,7 +190,7 @@ class _SwitchRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(label, style: const TextStyle(color: Color(0xFFF0F2F4), fontSize: 15)),
-                if (desc != null) ...[
+                if (desc != null) ...[)
                   const SizedBox(height: 3),
                   Text(desc!, style: const TextStyle(color: Color(0xFF8B929B), fontSize: 13)),
                 ],
@@ -328,6 +348,10 @@ class _OptionRow extends StatelessWidget {
 }
 
 class _TestVoiceButton extends StatefulWidget {
+  final VoidCallback onTap;
+
+  const _TestVoiceButton({required this.onTap});
+
   @override
   State<_TestVoiceButton> createState() => _TestVoiceButtonState();
 }
@@ -338,11 +362,11 @@ class _TestVoiceButtonState extends State<_TestVoiceButton> {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         setState(() => playing = true);
-        Future.delayed(const Duration(milliseconds: 1200), () {
-          if (mounted) setState(() => playing = false);
-        });
+        widget.onTap();
+        await Future.delayed(const Duration(milliseconds: 2000));
+        if (mounted) setState(() => playing = false);
       },
       child: Container(
         width: double.infinity,
