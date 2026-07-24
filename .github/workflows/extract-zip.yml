@@ -1,12 +1,7 @@
 name: Extract ZIP into Repo
 
 on:
-  workflow_dispatch
-    branches: [ main, master ]
-    paths:
-      - '**.zip'
   workflow_dispatch:
-
 jobs:
   extract:
     runs-on: ubuntu-latest
