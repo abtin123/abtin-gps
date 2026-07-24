@@ -40,23 +40,20 @@ extension MapQualityInfo on MapQuality {
 }
 
 /// سرویس مدیریت نقشه‌های آفلاین بر پایه‌ی قابلیت Offline خود MapLibre.
-///
-/// تایل‌های استایل تیره‌ی OpenFreeMap برای محدوده‌ی هر استان دانلود و روی دستگاه
-/// ذخیره می‌شوند؛ پس از آن نقشه بدون اینترنت هم در همان محدوده کار می‌کند.
+/// 🔧 تغیر: الان فقط نقشه دانلود می‌کند، گراف جدا‌جا دانلود می‌شود.
 class OfflineMapsService {
   static const String styleUrl = 'https://tiles.openfreemap.org/styles/dark';
 
   static bool _limitSet = false;
 
-  /// سقف تعداد تایل پیش‌فرض MapLibre پایین است؛ آن را بالا می‌بریم تا دانلود
-  /// یک استان کامل ممکن شود.
+  /// سقف تعداد تایل پیش‌فرض MapLibre پایین است؛ آن را بالا می‌بریم.
   Future<void> _ensureTileLimit() async {
     if (_limitSet) return;
     await setOfflineTileCountLimit(2000000);
     _limitSet = true;
   }
 
-  /// تخمین بسیار تقریبی حجم دانلود (مگابایت) برای نمایش به کاربر.
+  /// تخمین حجم دانلود نقشه (مگابایت).
   double estimateSizeMb(Province p, MapQuality q) {
     final base = switch (q) {
       MapQuality.smallest => 6.0,
@@ -66,6 +63,8 @@ class OfflineMapsService {
     return base * p.areaFactor;
   }
 
+  /// دانلود تنها نقشه (بدون گراف).
+  /// گراف بایستی جدا از OfflineGraphStore دانلود شود.
   Future<OfflineRegion> downloadProvince(
     Province province,
     MapQuality quality, {
@@ -100,7 +99,7 @@ class OfflineMapsService {
 
   Future<void> deleteRegion(int id) => deleteOfflineRegion(id);
 
-  /// حذف تمام منطقه‌های مربوط به یک استان (برای «به‌روزرسانی» یا «حذف»).
+  /// حذف تمام منطقه‌های نقشه‌ی یک استان.
   Future<void> deleteProvince(String provinceId) async {
     final regions = await getListOfRegions();
     for (final r in regions) {

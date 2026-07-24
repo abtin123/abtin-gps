@@ -1,62 +1,57 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:maplibre_gl/maplibre_gl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/widgets/glass_panel.dart';
 import '../../../shared/widgets/glass_notice.dart';
 import '../../../shared/widgets/page_header.dart';
 import '../../../shared/widgets/thumb_back_button.dart';
+import '../../routing/presentation/routing_providers.dart';
 import '../data/iran_provinces.dart';
-import '../data/offline_maps_service.dart';
 import 'offline_maps_providers.dart';
 
-class MapSettingsScreen extends ConsumerStatefulWidget {
-  const MapSettingsScreen({super.key});
+class GraphDownloadScreen extends ConsumerStatefulWidget {
+  const GraphDownloadScreen({super.key});
 
   @override
-  ConsumerState<MapSettingsScreen> createState() => _MapSettingsScreenState();
+  ConsumerState<GraphDownloadScreen> createState() => _GraphDownloadScreenState();
 }
 
-class _MapSettingsScreenState extends ConsumerState<MapSettingsScreen> {
+class _GraphDownloadScreenState extends ConsumerState<GraphDownloadScreen> {
   // پیشرفت دانلود هر استان (province.id -> 0..1)
   final Map<String, double> _progress = {};
 
-  /// 🔧 تغیر: فقط نقشه دانلود می‌شود (بدون گراف)
   Future<void> _download(Province province) async {
-    final service = ref.read(offlineMapsServiceProvider);
-    final quality = ref.read(selectedMapQualityProvider);
+    final graphStore = ref.read(offlineGraphStoreProvider);
     setState(() => _progress[province.id] = 0);
     try {
-      await service.downloadProvince(
+      await graphStore.downloadProvince(
         province,
-        quality,
         onProgress: (p) {
           if (mounted) setState(() => _progress[province.id] = p);
         },
       );
       if (!mounted) return;
       setState(() => _progress.remove(province.id));
-      ref.invalidate(offlineRegionsProvider);
-      _snack('نقشه‌ی «${province.name}» با موفقیت دانلود شد ✅');
+      ref.invalidate(downloadedGraphsProvider);
+      _snack('گراف «${province.name}» با موفقیت دانلود شد ✅');
     } catch (e) {
       if (!mounted) return;
       setState(() => _progress.remove(province.id));
-      _snack('خطا در دانلود نقشه‌ی «${province.name}»: $e', error: true);
+      _snack('خطا در دانلود گراف «${province.name}»: $e', error: true);
     }
   }
 
   Future<void> _delete(Province province) async {
-    final service = ref.read(offlineMapsServiceProvider);
-    await service.deleteProvince(province.id);
+    final graphStore = ref.read(offlineGraphStoreProvider);
+    await graphStore.deleteProvince(province.id);
     if (!mounted) return;
-    ref.invalidate(offlineRegionsProvider);
-    _snack('نقشه‌ی «${province.name}» حذف شد');
+    ref.invalidate(downloadedGraphsProvider);
+    _snack('گراف «${province.name}» حذف شد');
   }
 
   Future<void> _update(Province province) async {
-    final service = ref.read(offlineMapsServiceProvider);
-    final quality = ref.read(selectedMapQualityProvider);
-    await service.deleteProvince(province.id);
+    final graphStore = ref.read(offlineGraphStoreProvider);
+    await graphStore.deleteProvince(province.id);
     await _download(province);
   }
 
@@ -74,20 +69,16 @@ class _MapSettingsScreenState extends ConsumerState<MapSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final regionsAsync = ref.watch(offlineRegionsProvider);
-    final quality = ref.watch(selectedMapQualityProvider);
-    final service = ref.read(offlineMapsServiceProvider);
+    final graphsAsync = ref.watch(downloadedGraphsProvider);
+    final graphStore = ref.read(offlineGraphStoreProvider);
 
-    final downloaded = <String, OfflineRegion>{};
-    regionsAsync.whenData((regions) {
-      for (final r in regions) {
-        final pid = r.metadata['province'];
-        if (pid is String) downloaded[pid] = r;
-      }
+    final downloaded = <String>{};
+    graphsAsync.whenData((graphs) {
+      downloaded.addAll(graphs);
     });
 
     return Scaffold(
-      appBar: const PageHeader(title: 'تنظیمات نقشه'),
+      appBar: const PageHeader(title: 'دانلود گراف مسیریابی'),
       body: Container(
         decoration: const BoxDecoration(
           gradient: RadialGradient(
@@ -104,16 +95,10 @@ class _MapSettingsScreenState extends ConsumerState<MapSettingsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _QualitySelector(
-                      selected: quality,
-                      onChanged: (q) =>
-                          ref.read(selectedMapQualityProvider.notifier).state = q,
-                    ),
-                    const SizedBox(height: 8),
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 4),
                       child: Text(
-                        'نقشه را استان‌به‌استان دانلود کنید.\n\n💡 نکته: گراف مسیریابی جدا‌جا در تنظیمات > دانلود گراف دانلود می‌شود.',
+                        'گراف مسیریابی آفلاین را دانلود کنید تا بدون اینترنت مسیریابی محاسبه شود.\n\nنکته: نقشه و گراف جدا دانلود می‌شوند.',
                         textAlign: TextAlign.right,
                         style: TextStyle(
                           color: AppColors.textSecondary,
@@ -133,9 +118,8 @@ class _MapSettingsScreenState extends ConsumerState<MapSettingsScreen> {
                             final p = kIranProvinces[i];
                             return _ProvinceRow(
                               province: p,
-                              isDownloaded: downloaded.containsKey(p.id),
+                              isDownloaded: downloaded.contains(p.id),
                               progress: _progress[p.id],
-                              sizeMb: service.estimateSizeMb(p, quality),
                               onDownload: () => _download(p),
                               onDelete: () => _delete(p),
                               onUpdate: () => _update(p),
@@ -156,63 +140,10 @@ class _MapSettingsScreenState extends ConsumerState<MapSettingsScreen> {
   }
 }
 
-class _QualitySelector extends StatelessWidget {
-  final MapQuality selected;
-  final ValueChanged<MapQuality> onChanged;
-  const _QualitySelector({required this.selected, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: MapQuality.values.map((q) {
-        final active = q == selected;
-        return Expanded(
-          child: GestureDetector(
-            onTap: () => onChanged(q),
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              decoration: BoxDecoration(
-                color: active
-                    ? AppColors.subAccentB.withOpacity(.22)
-                    : AppColors.subGlassBgSoft,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: active ? AppColors.subAccentB : AppColors.subGlassBorder,
-                  width: 1.5,
-                ),
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    q.label,
-                    style: TextStyle(
-                      color: active ? Colors.white : AppColors.textSecondary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    q.desc,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
 class _ProvinceRow extends StatelessWidget {
   final Province province;
   final bool isDownloaded;
   final double? progress;
-  final double sizeMb;
   final VoidCallback onDownload;
   final VoidCallback onDelete;
   final VoidCallback onUpdate;
@@ -221,7 +152,6 @@ class _ProvinceRow extends StatelessWidget {
     required this.province,
     required this.isDownloaded,
     required this.progress,
-    required this.sizeMb,
     required this.onDownload,
     required this.onDelete,
     required this.onUpdate,
@@ -242,9 +172,10 @@ class _ProvinceRow extends StatelessWidget {
                   child: Text(
                     '${((progress ?? 0) * 100).round()}٪',
                     style: const TextStyle(
-                        color: AppColors.subAccentA,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold),
+                      color: AppColors.subAccentA,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 )
               else if (isDownloaded) ...[]
@@ -259,31 +190,41 @@ class _ProvinceRow extends StatelessWidget {
                     Text(
                       province.name,
                       style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600),
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      isDownloaded
-                          ? 'دانلود شده · آفلاین'
-                          : '≈ ${sizeMb.toStringAsFixed(sizeMb < 10 ? 1 : 0)} مگابایت',
+                      isDownloaded ? 'گراف دانلود شده ✓' : 'آماده برای دانلود',
                       style: TextStyle(
                         color: isDownloaded
                             ? AppColors.homeAccent
                             : AppColors.textMuted,
-                        fontSize: 13,
+                        fontSize: 12,
                       ),
                     ),
                   ],
                 ),
               ),
               const SizedBox(width: 10),
-              Icon(
-                isDownloaded ? Icons.offline_pin_rounded : Icons.public_rounded,
-                color: isDownloaded ? AppColors.homeAccent : AppColors.textMuted,
-                size: 20,
-              ),
+              if (isDownloading)
+                const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.subAccentA),
+                  ),
+                )
+              else if (isDownloaded) ...[]
+              else
+                Icon(
+                  Icons.cloud_download_outlined,
+                  color: AppColors.textMuted,
+                  size: 20,
+                ),
             ],
           ),
           if (isDownloading) ...[]
@@ -381,9 +322,6 @@ class _ProvinceRow extends StatelessWidget {
                 ],
               ),
             ),
-          if (isDownloading) ...[]
-          else if (isDownloaded) ...[]
-          else ...[],
         ],
       ),
     );
