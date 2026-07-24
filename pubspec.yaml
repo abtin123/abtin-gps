@@ -40,7 +40,7 @@ dependencies:
   http: ^1.2.0
 
   # --- TTS فارسی (تبدیل متن به صدا) ---
-  flutter_tts: ^0.18.0
+  flutter_tts: ^4.2.5
 
   cupertino_icons: ^1.0.6
 
